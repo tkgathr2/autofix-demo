@@ -34,10 +34,6 @@ jobs:
           mkdir -p reports
           echo '{}' > reports/report.json
 
-      # 🔴 わざと失敗させるステップ（テスト用）
-      - name: Force fail (temp)
-        run: exit 1
-
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
