@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches-ignore:
+      - 'autofix/**'
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node (only if Node project)
+        if: ${{ hashFiles('package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps (Node)
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm ci
+
+      - name: Run tests with JSON report (Node)
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          mkdir -p reports
+          npm test -- --reporter=json --reporter-option output=reports/report.json || true
+          test -s reports/report.json || echo '{}' > reports/report.json
+
+      - name: Ensure report exists (non-Node)
+        if: ${{ hashFiles('package.json') == '' }}
+        run: |
+          mkdir -p reports
+          echo '{}' > reports/report.json
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: reports/report.json
