@@ -1,0 +1,60 @@
+name: Notify n8n on failure
+on:
+  workflow_run:
+    workflows: [ "CI" ]   # ci.yml の name と一致させる
+    types: [ completed ]
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y jq unzip
+
+      - name: Guard: skip autofix branches
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          if [[ "$BRANCH" =~ ^autofix/ ]]; then
+            echo "Skip: autofix branch"
+            exit 78
+          fi
+
+      - name: Get artifacts list
+        id: arts
+        run: |
+          curl -sSfL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "${{ github.event.workflow_run.artifacts_url }}" > arts.json
+          URL=$(jq -r '.artifacts[]? | select(.name=="test-report") | .archive_download_url' arts.json | head -n1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifact (test report)
+        if: ${{ steps.arts.outputs.url != '' }}
+        run: |
+          curl -sSfL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "${{ steps.arts.outputs.url }}" -o arts.zip
+          unzip -o arts.zip -d ./artifacts || true
+          REPORT_PATH=$(ls artifacts/**/report.json artifacts/report.json report.json 2>/dev/null | head -n1 || true)
+          echo "REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
+
+      - name: Post to n8n webhook
+        env:
+          N8N_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
+        run: |
+          report_json="{}"
+          if [ -n "${{ env.REPORT_PATH }}" ] && [ -f "${{ env.REPORT_PATH }}" ]; then
+            report_json="$(cat "${{ env.REPORT_PATH }}")"
+          fi
+          payload=$(jq -n \
+            --arg repo   "${{ github.repository }}" \
+            --arg sha    "${{ github.event.workflow_run.head_sha }}" \
+            --arg branch "${{ github.event.workflow_run.head_branch }}" \
+            --arg html   "${{ github.event.workflow_run.html_url }}" \
+            --argjson run_id "${{ github.event.workflow_run.id }}" \
+            --argjson report "$report_json" \
+            '{repo:$repo, sha:$sha, branch:$branch, run_html:$html, run_id:$run_id, report:$report}')
+          curl --retry 3 --retry-all-errors --max-time 30 \
+            -sSf -X POST -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${N8N_SECRET}" \
+            -d "$payload" "$N8N_URL"
