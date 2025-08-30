@@ -1,4 +1,5 @@
 name: Notify n8n on failure
+
 on:
   workflow_run:
     workflows: [ "CI" ]   # ci.yml の name と一致させる
