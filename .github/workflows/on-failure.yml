@@ -12,7 +12,7 @@ jobs:
       - name: Install deps
         run: sudo apt-get update && sudo apt-get install -y jq unzip
 
-      - name: Guard: skip autofix branches
+      - name: "Guard: skip autofix branches"
         run: |
           BRANCH="${{ github.event.workflow_run.head_branch }}"
           if [[ "$BRANCH" =~ ^autofix/ ]]; then
